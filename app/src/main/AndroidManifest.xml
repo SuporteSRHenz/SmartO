@@ -4,8 +4,9 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <application
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
-        android:label="Controle Local"
-        android:usesCleartextTraffic="true">
+        android:label="SmartO"
+        android:usesCleartextTraffic="true"
+        android:icon="@drawable/ic_smarto">
         <activity
             android:name=".MainActivity"
             android:exported="true">

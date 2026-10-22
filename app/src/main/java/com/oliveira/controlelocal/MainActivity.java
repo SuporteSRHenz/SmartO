@@ -10,6 +10,7 @@ import android.view.Gravity;
 import android.widget.*;
 import android.content.*;
 import java.net.*;
+import java.net.URLEncoder;
 import java.io.*;
 import java.util.*;
 import java.util.concurrent.*;
@@ -90,20 +91,114 @@ public class MainActivity extends Activity {
         }
         for (Dispositivo d : salvos) {
             Button b = botao(d.nome + "\n" + d.ip + "\n" +
-                (d.mac.isEmpty() ? "MAC indisponível" : d.mac), () ->
-                new AlertDialog.Builder(this).setTitle(d.nome)
-                .setMessage("IP: "+d.ip+"\nMAC: "+
-                    (d.mac.isEmpty()?"indisponível":d.mac)+
-                    "\nPortas detectadas: "+d.portas+
-                    "\n\nO cadastro ainda não possui comando de acionamento para este protocolo.")
-                .setPositiveButton("OK",null)
-                .setNeutralButton("Editar nome", (x,w)->editar(d)).show());
+                (d.mac.isEmpty() ? "MAC indisponível" : d.mac), () -> abrirControle(d));
             b.setTextColor(Color.WHITE);
             b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(d.cor));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1,-2);
             lp.setMargins(0,5,0,8);
             lista.addView(b,lp);
         }
+    }
+
+
+    android.content.SharedPreferences prefsTasmota(Dispositivo d) {
+        String chave = d.ip.replaceAll("[^0-9A-Za-z]", "_");
+        return getSharedPreferences("tasmota_" + chave, 0);
+    }
+
+    EditText campo(String dica, String valor, boolean senha) {
+        EditText e = new EditText(this);
+        e.setSingleLine(true);
+        e.setHint(dica);
+        e.setText(valor);
+        if (senha) e.setInputType(129);
+        return e;
+    }
+
+    void abrirControle(Dispositivo d) {
+        android.content.SharedPreferences p = prefsTasmota(d);
+        String usuario=p.getString("usuario", "admin");
+        String senha=p.getString("senha", "");
+        String porta=p.getString("porta", "80");
+        String ligar=p.getString("ligar", "Power ON");
+        String desligar=p.getString("desligar", "Power OFF");
+        String alternar=p.getString("alternar", "Power TOGGLE");
+        String teste=p.getString("teste", "Status 0");
+        LinearLayout box=new LinearLayout(this); box.setOrientation(1); box.setPadding(24,8,24,0);
+        TextView info=texto("IP: "+d.ip+"\nConfigure os comandos para este dispositivo Tasmota.",14); box.addView(info);
+        ScrollView sc=new ScrollView(this); sc.addView(box);
+        String[] acoes={"Ligar", "Desligar", "Alternar", "Testar conexão", "Executar comando personalizado", "Configurar Tasmota", "Editar nome"};
+        new AlertDialog.Builder(this).setTitle(d.nome + " • " + d.ip)
+            .setItems(acoes,(dlg,qual)->{
+                if(qual==0) enviarTasmota(d,"ligar");
+                else if(qual==1) enviarTasmota(d,"desligar");
+                else if(qual==2) enviarTasmota(d,"alternar");
+                else if(qual==3) enviarTasmota(d,"teste");
+                else if(qual==4) enviarTasmota(d,"personalizado");
+                else if(qual==5) configurarTasmota(d);
+                else editar(d);
+            }).show();
+    }
+
+    void configurarTasmota(Dispositivo d) {
+        android.content.SharedPreferences p=prefsTasmota(d);
+        LinearLayout box=new LinearLayout(this); box.setOrientation(1); box.setPadding(24,4,24,4);
+        EditText ip=campo("IP ou host",p.getString("ip",d.ip),false);
+        EditText porta=campo("Porta HTTP",p.getString("porta","80"),false);
+        EditText usuario=campo("Usuário",p.getString("usuario","admin"),false);
+        EditText senha=campo("Senha",p.getString("senha",""),true);
+        EditText ligar=campo("Comando para ligar",p.getString("ligar","Power ON"),false);
+        EditText desligar=campo("Comando para desligar",p.getString("desligar","Power OFF"),false);
+        EditText alternar=campo("Comando para alternar",p.getString("alternar","Power TOGGLE"),false);
+        EditText teste=campo("Comando de teste",p.getString("teste","Status 0"),false);
+        EditText personalizado=campo("Comando personalizado / Backlog",p.getString("personalizado",""),false);
+        for(EditText e:new EditText[]{ip,porta,usuario,senha,ligar,desligar,alternar,teste,personalizado}) box.addView(e);
+        ScrollView sc=new ScrollView(this); sc.addView(box);
+        new AlertDialog.Builder(this).setTitle("Configurar Tasmota") .setView(sc)
+            .setNegativeButton("Cancelar",null)
+            .setPositiveButton("Salvar",(a,b)->{
+                String endereco=ip.getText().toString().trim();
+                String pt=porta.getText().toString().trim();
+                if(endereco.isEmpty() || pt.isEmpty()) { aviso("Informe IP e porta."); return; }
+                p.edit().putString("ip",endereco).putString("porta",pt)
+                 .putString("usuario",usuario.getText().toString()).putString("senha",senha.getText().toString())
+                 .putString("ligar",ligar.getText().toString().trim()).putString("desligar",desligar.getText().toString().trim())
+                 .putString("alternar",alternar.getText().toString().trim()).putString("teste",teste.getText().toString().trim())
+                 .putString("personalizado",personalizado.getText().toString().trim()).apply();
+                aviso("Configuração Tasmota salva.");
+            }).show();
+    }
+
+    void aviso(String mensagem) {
+        new AlertDialog.Builder(this).setMessage(mensagem).setPositiveButton("OK",null).show();
+    }
+
+    void enviarTasmota(Dispositivo d, String tipo) {
+        android.content.SharedPreferences p=prefsTasmota(d);
+        String ip=p.getString("ip",d.ip), porta=p.getString("porta","80");
+        String usuario=p.getString("usuario","admin"), senha=p.getString("senha","");
+        String comando;
+        if("ligar".equals(tipo)) comando=p.getString("ligar","Power ON");
+        else if("desligar".equals(tipo)) comando=p.getString("desligar","Power OFF");
+        else if("alternar".equals(tipo)) comando=p.getString("alternar","Power TOGGLE");
+        else if("personalizado".equals(tipo)) comando=p.getString("personalizado","");
+        else comando=p.getString("teste","Status 0");
+        if(comando.trim().isEmpty()) { aviso("Preencha o comando nas configurações Tasmota."); return; }
+        status.setText("Enviando comando para "+ip+"...");
+        new Thread(() -> {
+            HttpURLConnection c=null; String resposta=""; int codigo=-1;
+            try {
+                String url="http://"+ip+":"+Integer.parseInt(porta)+"/cm?user="+
+                    URLEncoder.encode(usuario,"UTF-8")+"&password="+URLEncoder.encode(senha,"UTF-8")+
+                    "&cmnd="+URLEncoder.encode(comando,"UTF-8");
+                c=(HttpURLConnection)new URL(url).openConnection(); c.setConnectTimeout(3000); c.setReadTimeout(3000); c.setRequestMethod("GET");
+                codigo=c.getResponseCode(); InputStream in=(codigo>=200 && codigo<400)?c.getInputStream():c.getErrorStream();
+                if(in!=null) { ByteArrayOutputStream out=new ByteArrayOutputStream(); byte[] buf=new byte[1024]; int n; while((n=in.read(buf))!=-1) out.write(buf,0,n); resposta=new String(out.toByteArray(),"UTF-8"); in.close(); }
+            } catch(Exception e) { resposta=e.getMessage()==null?"Falha na conexão":e.getMessage(); }
+            finally { if(c!=null)c.disconnect(); }
+            final String r=resposta; final int cod=codigo;
+            handler.post(() -> aviso((cod>=200 && cod<300 ? "Resposta do Tasmota (HTTP "+cod+"):\n" : "Não foi possível confirmar o comando (HTTP "+cod+"):\n")+r));
+        }).start();
     }
 
     void menu() {

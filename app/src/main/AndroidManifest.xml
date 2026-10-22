@@ -6,7 +6,7 @@
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:label="SmartO"
         android:usesCleartextTraffic="true"
-        android:icon="@drawable/ic_smarto">
+        android:icon="@mipmap/ic_smarto">
         <activity
             android:name=".MainActivity"
             android:exported="true">
